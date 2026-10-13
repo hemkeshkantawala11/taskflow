@@ -1,4 +1,4 @@
 # Overrides for the local kind cluster. CI updates image.tag on every release
 # (a "deploy" commit), and Argo CD syncs the cluster to match this file.
 image:
-  tag: "c03d0021f86e7aaff8cf92286f7df8b1c8e46202"
+  tag: "ea5c829e041d83eef5cd88b678eaf8997c65ff13"
