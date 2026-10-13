@@ -12,6 +12,7 @@ Design notes (useful for the viva):
 import logging
 import threading
 
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -77,11 +78,16 @@ def ensure_schema() -> bool:
 
 
 def ping() -> bool:
-    """Readiness check: can we run a trivial query within the timeout?"""
+    """Readiness check: can we run a trivial query within the timeout?
+
+    Not traced: /readyz runs every few seconds per pod, and each SELECT 1 would
+    become its own one-span trace, burying real user requests in Jaeger.
+    """
     try:
-        with pool.connection(timeout=settings.db_timeout_seconds) as conn:
-            conn.execute("SELECT 1")
-        return ensure_schema()
+        with suppress_instrumentation():
+            with pool.connection(timeout=settings.db_timeout_seconds) as conn:
+                conn.execute("SELECT 1")
+            return ensure_schema()
     except Exception as exc:  # noqa: BLE001
         log.warning("database ping failed: %s", exc)
         return False
