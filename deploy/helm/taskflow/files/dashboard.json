@@ -56,7 +56,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
