@@ -1,0 +1,31 @@
+# Quick local run without Kubernetes:  docker compose up --build
+# Then open http://localhost:8000 (app) and http://localhost:16686 (Jaeger traces).
+# The password below is a throwaway local-only value; the cluster uses a generated Secret.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskflow
+      POSTGRES_USER: taskflow
+      POSTGRES_PASSWORD: local-dev-only
+    ports: ["127.0.0.1:5432:5432"]   # lets `make test` reach it from your machine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskflow -d taskflow"]
+      interval: 5s
+      retries: 10
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    ports: ["16686:16686"]
+  app:
+    build:
+      context: .
+      args: { APP_VERSION: compose, GIT_SHA: local }
+    environment:
+      DB_HOST: db
+      DB_USER: taskflow
+      DB_PASSWORD: local-dev-only
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports: ["8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
