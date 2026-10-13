@@ -5,6 +5,9 @@ cd "$(dirname "$0")/.."
 BASE=${BASE_URL:-http://taskflow.localtest.me:8080}
 VALUES=deploy/helm/taskflow/values-local.yaml
 
+# CI pushes release commits to this branch too, so rebase onto them before pushing.
+push() { git pull --rebase origin "$(git branch --show-current)" && git push; }
+
 case "${1:-}" in
   load)       # steady traffic so dashboards and alerts have data
     echo "Sending traffic to $BASE (Ctrl-C to stop)"
@@ -27,9 +30,9 @@ case "${1:-}" in
     echo "  kubectl -n taskflow get pods -w" ;;
 
   bad-release) # release an image that cannot start; old pods keep serving
-    sed -i -E 's|^(  tag: ).*|\1"does-not-exist"|' $VALUES
+    perl -pi -e 's|^(  tag: ).*|${1}"does-not-exist"|' $VALUES   # perl: same on macOS and Linux
     git commit -am "release: deliberately broken image tag (fault demo) [skip ci]"
-    git push
+    push
     echo "Watch: new pod ImagePullBackOff, old pods still Ready (maxUnavailable: 0)."
     echo "Recover with:  git revert --no-edit HEAD && git push" ;;
 
@@ -45,7 +48,7 @@ if rate != '"0"':
 open(path, 'w').write(text)
 PY
     git commit -am "demo: set chaosErrorRate=$rate [skip ci]"
-    git push
+    push
     echo "Argo CD syncs in ~1 min. Run 'scripts/demo.sh load' and watch the Grafana dashboard + alerts." ;;
 
   *) echo "usage: $0 {load|drift|db-down|bad-release|errors-on|errors-off}"; exit 1 ;;

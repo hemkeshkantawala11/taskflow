@@ -56,7 +56,7 @@ rollback: ## Roll back the last release the GitOps way (revert the newest deploy
 	@c=$$(git log --format=%H --grep='^deploy(local):' -1); \
 	 [ -n "$$c" ] || { echo "no deploy commit found"; exit 1; }; \
 	 git log -1 --format='Reverting %h %s' $$c; \
-	 git revert --no-edit $$c && git push
+	 git revert --no-edit $$c && git pull --rebase origin $$(git branch --show-current) && git push
 
 # ---------- failure demos (see docs/fault-demo.md) ----------
 load: ## Generate steady traffic
