@@ -1,0 +1,15 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+# Tells the Prometheus Operator to scrape /metrics on every ready web pod.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "taskflow.fullname" . }}
+  labels: {{- include "taskflow.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "taskflow.appSelector" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}

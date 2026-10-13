@@ -1,0 +1,13 @@
+{{- if .Values.monitoring.dashboard.enabled }}
+# Grafana's sidecar loads any ConfigMap with this label as a dashboard.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "taskflow.fullname" . }}-dashboard
+  labels:
+    {{- include "taskflow.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  taskflow.json: |-
+{{ .Files.Get "files/dashboard.json" | replace "__NAMESPACE__" .Release.Namespace | indent 4 }}
+{{- end }}

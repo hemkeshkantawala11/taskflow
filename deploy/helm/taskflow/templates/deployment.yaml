@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taskflow.fullname" . }}
+  labels:
+    {{- include "taskflow.labels" . | nindent 4 }}
+    {{- include "taskflow.appSelector" . | nindent 4 }}
+    app.kubernetes.io/version: {{ .Values.image.tag | quote }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.rollout.revisionHistoryLimit }}
+  minReadySeconds: {{ .Values.rollout.minReadySeconds }}
+  progressDeadlineSeconds: {{ .Values.rollout.progressDeadlineSeconds }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.rollout.maxSurge }}
+      maxUnavailable: {{ .Values.rollout.maxUnavailable }}
+  selector:
+    matchLabels: {{- include "taskflow.appSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "taskflow.labels" . | nindent 8 }}
+        {{- include "taskflow.appSelector" . | nindent 8 }}
+        app.kubernetes.io/version: {{ .Values.image.tag | quote }}
+      annotations:
+        # Changing the ConfigMap changes this hash, which triggers a rolling restart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "taskflow.fullname" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "taskflow.appSelector" . | nindent 14 }}
+      containers:
+        - name: taskflow
+          image: {{ include "taskflow.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: {{ .Values.service.targetPort }} }
+          envFrom:
+            - configMapRef: { name: {{ include "taskflow.fullname" . }} }
+          env:
+            - name: DB_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: username } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: password } }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+          startupProbe:
+            httpGet: { path: {{ .Values.probes.startup.path }}, port: http }
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet: { path: {{ .Values.probes.liveness.path }}, port: http }
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet: { path: {{ .Values.probes.readiness.path }}, port: http }
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+          lifecycle:
+            # Give endpoints/ingress time to stop routing here before shutdown starts.
+            preStop:
+              sleep: { seconds: 5 }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {{- include "taskflow.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 16Mi }

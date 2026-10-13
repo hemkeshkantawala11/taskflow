@@ -1,0 +1,84 @@
+# Default values for every environment. Environment-specific overrides live in
+# values-<env>.yaml (here: values-local.yaml), so there is one chart and no
+# drifting copies of manifests.
+
+image:
+  repository: ghcr.io/hemkeshkantawala11/taskflow
+  tag: ""                    # set per environment by CI to the git commit SHA
+  pullPolicy: IfNotPresent
+imagePullSecrets: []         # e.g. [{name: ghcr-pull}] if the GHCR package is private
+
+replicaCount: 2              # ignored when autoscaling.enabled (the HPA owns replicas)
+
+app:
+  logLevel: INFO
+  dbPoolMax: 5
+  chaosErrorRate: "0"        # fault-injection demo only; keep "0"
+  tracing:
+    enabled: true
+    otlpEndpoint: http://jaeger.observability.svc.cluster.local:4318
+
+service:
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: traefik
+  host: taskflow.localtest.me   # *.localtest.me resolves to 127.0.0.1, no /etc/hosts edit needed
+
+resources:
+  requests: { cpu: 50m, memory: 96Mi }
+  limits:   { memory: 256Mi }   # no CPU limit: avoids throttling; requests drive scheduling + HPA
+
+probes:
+  startup:   { path: /healthz, periodSeconds: 2,  failureThreshold: 30 }
+  liveness:  { path: /healthz, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 2 }
+  readiness: { path: /readyz,  periodSeconds: 5,  failureThreshold: 2, timeoutSeconds: 4 }
+
+rollout:
+  maxSurge: 1
+  maxUnavailable: 0          # never drop below desired capacity during a release
+  minReadySeconds: 5
+  progressDeadlineSeconds: 120
+  revisionHistoryLimit: 5
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  ingressControllerNamespace: traefik
+  monitoringNamespace: monitoring
+  tracingNamespace: observability
+  # Kubelet health probes come from the node's IP, not from a pod. kind nodes
+  # live on Docker's 172.16.0.0/12 range; adjust for other clusters.
+  nodeCIDR: 172.16.0.0/12
+
+monitoring:
+  serviceMonitor: { enabled: true, interval: 15s }
+  prometheusRule: { enabled: true }
+  dashboard: { enabled: true }
+  slo:
+    availabilityTarget: 0.99   # 99% of /api requests succeed (non-5xx)
+    latencyP95Seconds: 0.5
+  runbookBaseUrl: https://github.com/hemkeshkantawala11/taskflow/blob/devops/platform/docs/runbook.md
+
+database:
+  enabled: true
+  image: postgres:16-alpine
+  name: taskflow
+  # Created outside Git by scripts/create-secrets.sh (keys: username, password).
+  existingSecret: taskflow-db
+  storage: 1Gi
+  storageClassName: ""         # "" = cluster default (kind: "standard", local-path)
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { memory: 512Mi }
