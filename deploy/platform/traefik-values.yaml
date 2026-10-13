@@ -17,3 +17,10 @@ providers:
     enabled: false   # we only use the portable networking.k8s.io/v1 Ingress
   kubernetesIngress:
     enabled: true
+    # A NodePort Service has no load-balancer address to copy into Ingress status,
+    # and Argo CD reports an Ingress without one as "Progressing" forever.
+    # Publish the address users actually reach (kind maps it to localhost) instead.
+    publishedService:
+      enabled: false
+    ingressEndpoint:
+      ip: 127.0.0.1
