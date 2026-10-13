@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskFlow</title>
+<style>
+  :root {
+    --paper: #eef2f0; --sheet: #fbfcfb; --ink: #1d2b2a; --muted: #5d6b69;
+    --rule: #cfdad6; --margin: #c8463d; --accent: #1f5c99; --done: #7c8a87;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #121817; --sheet: #1a2221; --ink: #e4ebe9; --muted: #9aa8a5;
+      --rule: #2c3836; --margin: #e0675e; --accent: #8db8e8; --done: #6f7d7a;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; justify-content: center; padding: 48px 16px;
+  }
+  main { width: 100%; max-width: 640px; }
+  h1 { font-size: 2.6rem; line-height: 1.1; margin: 0 0 4px; letter-spacing: -0.02em; font-weight: 800; }
+  .lede { color: var(--muted); margin: 0 0 28px; }
+  .sheet {
+    background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px;
+    border-left: 3px solid var(--margin); padding: 8px 0;
+  }
+  form { display: flex; gap: 8px; padding: 12px 20px 16px; border-bottom: 2px solid var(--rule); }
+  input[type=text] {
+    flex: 1; font: inherit; padding: 10px 12px; border: 1px solid var(--rule);
+    border-radius: 4px; background: var(--paper); color: var(--ink);
+  }
+  button {
+    font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 4px;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--sheet); cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--muted); border-color: transparent; padding: 6px 10px; font-weight: 400; }
+  button.ghost:hover { color: var(--margin); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--rule); }
+  li:last-child { border-bottom: 0; }
+  li label { flex: 1; display: flex; gap: 12px; align-items: center; cursor: pointer; }
+  li input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+  li.done .title { color: var(--done); text-decoration: line-through; }
+  .empty, .error { padding: 24px 20px; color: var(--muted); margin: 0; }
+  .error { color: var(--margin); }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <h1>TaskFlow</h1>
+  <p class="lede">A shared list of things to get done.</p>
+  <section class="sheet">
+    <form id="add">
+      <label class="visually-hidden" for="title">New task</label>
+      <input id="title" type="text" maxlength="200" placeholder="Add a task" required autocomplete="off">
+      <button type="submit">Add task</button>
+    </form>
+    <ul id="list" aria-live="polite"></ul>
+    <p id="status" class="empty" hidden></p>
+  </section>
+</main>
+<script>
+  const list = document.getElementById("list");
+  const statusEl = document.getElementById("status");
+
+  function showStatus(text, isError) {
+    statusEl.textContent = text;
+    statusEl.className = isError ? "error" : "empty";
+    statusEl.hidden = !text;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+    if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+    return res.status === 204 ? null : res.json();
+  }
+
+  function render(tasks) {
+    list.replaceChildren();
+    showStatus(tasks.length ? "" : "Nothing on the list. Add the first task above.");
+    for (const t of tasks) {
+      const li = document.createElement("li");
+      li.className = t.done ? "done" : "";
+      const label = document.createElement("label");
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.checked = t.done;
+      box.addEventListener("change", () => update(t.id, box.checked));
+      const title = document.createElement("span");
+      title.className = "title"; title.textContent = t.title;
+      label.append(box, title);
+      const del = document.createElement("button");
+      del.className = "ghost"; del.textContent = "Delete";
+      del.setAttribute("aria-label", `Delete ${t.title}`);
+      del.addEventListener("click", () => remove(t.id));
+      li.append(label, del);
+      list.append(li);
+    }
+  }
+
+  async function load() {
+    try { render(await api("/api/tasks")); }
+    catch (e) { showStatus("Couldn't load tasks. Check that the server is running, then reload.", true); }
+  }
+  async function update(id, done) {
+    try { await api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ done }) }); }
+    catch (e) { showStatus("Couldn't update the task. Try again.", true); }
+    load();
+  }
+  async function remove(id) {
+    try { await api(`/api/tasks/${id}`, { method: "DELETE" }); }
+    catch (e) { showStatus("Couldn't delete the task. Try again.", true); }
+    load();
+  }
+
+  document.getElementById("add").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const input = document.getElementById("title");
+    try {
+      await api("/api/tasks", { method: "POST", body: JSON.stringify({ title: input.value }) });
+      input.value = "";
+    } catch (e) { showStatus("Couldn't add the task. Try again.", true); }
+    load();
+  });
+
+  load();
+</script>
+</body>
+</html>
