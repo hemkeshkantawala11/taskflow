@@ -1,0 +1,47 @@
+# Jaeger v2 all-in-one: receives OTLP traces and serves the UI. In-memory
+# storage - traces are lost on restart, which is acceptable for local debugging.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: observability
+  labels: { app: jaeger }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: jaeger }
+  template:
+    metadata:
+      labels: { app: jaeger }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: jaeger
+          image: jaegertracing/jaeger:2.21.0
+          env:
+            - { name: JAEGER_LISTEN_HOST, value: "0.0.0.0" }
+          ports:
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: ui, containerPort: 16686 }
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: observability
+spec:
+  selector: { app: jaeger }
+  ports:
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }
+    - { name: ui, port: 16686, targetPort: ui }

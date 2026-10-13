@@ -1,0 +1,3 @@
+# Needed by the HorizontalPodAutoscaler. kind kubelets use self-signed certs.
+args:
+  - --kubelet-insecure-tls

@@ -1,0 +1,32 @@
+# Desired state = this Git branch. Argo CD polls it every minute and makes the
+# cluster match. selfHeal reverts manual kubectl edits (drift); prune removes
+# resources deleted from Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: taskflow
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: taskflow
+  source:
+    repoURL: https://github.com/hemkeshkantawala11/taskflow.git
+    targetRevision: devops/platform
+    path: deploy/helm/taskflow
+    helm:
+      releaseName: taskflow
+      valueFiles:
+        - values.yaml
+        - values-local.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: taskflow
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 3
+      backoff: { duration: 10s, factor: 2, maxDuration: 2m }
+  revisionHistoryLimit: 10

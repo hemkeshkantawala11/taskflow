@@ -1,0 +1,19 @@
+# Ingress controller. Exposed as NodePort 30080, which kind maps to localhost:8080.
+# (ingress-nginx was retired in 2026, so Traefik is used for the standard Ingress API.)
+service:
+  spec:
+    type: NodePort
+ports:
+  web:
+    nodePort: 30080
+  websecure:
+    expose:
+      default: false
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+providers:
+  kubernetesCRD:
+    enabled: false   # we only use the portable networking.k8s.io/v1 Ingress
+  kubernetesIngress:
+    enabled: true

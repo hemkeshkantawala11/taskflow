@@ -1,0 +1,17 @@
+# Least privilege for deployment: Argo CD may deploy ONLY this repo, ONLY into
+# the taskflow namespace, and may NOT create cluster-wide resources.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: taskflow
+  namespace: argocd
+spec:
+  description: TaskFlow application
+  sourceRepos:
+    - https://github.com/hemkeshkantawala11/taskflow.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: taskflow
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - { group: "*", kind: "*" }
