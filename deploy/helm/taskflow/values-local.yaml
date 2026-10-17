@@ -2,5 +2,3 @@
 # (a "deploy" commit), and Argo CD syncs the cluster to match this file.
 image:
   tag: "654c9d0eeb98936e50f2ec6a298fc73075905a67"
-app:
-  chaosErrorRate: "0.3"
