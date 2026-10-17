@@ -60,7 +60,14 @@ docs/                     architecture, decisions, runbook, fault demo, evidence
 - [kind](https://kind.sigs.k8s.io/) v0.33+, kubectl, Helm 3.x or 4.x, git, make, curl, openssl, python3
 - A **public** GitHub repository (GHCR pulls, Argo CD access and environment approvals work without extra setup)
 
-Tested configuration: kind v0.33.0, Helm v3.21.4. Linux, macOS or Windows (WSL2).
+Tested end to end on macOS (Apple Silicon, arm64) with Docker Desktop 29.3, kind v0.33.0
+(Kubernetes v1.37), Helm v4.3.0 locally and v3.21.4 in CI. The image is multi-arch
+(amd64 + arm64), so Intel/Linux hosts work too.
+
+> **Using kubectl for other clusters too?** The `make` targets and scripts act on your
+> *current* kubectl context. Check `kubectl config current-context` says `kind-taskflow`
+> first, or run them with an isolated config:
+> `kind get kubeconfig --name taskflow > /tmp/kind.kubeconfig && export KUBECONFIG=/tmp/kind.kubeconfig`.
 
 ## Run it
 
@@ -70,8 +77,9 @@ Tested configuration: kind v0.33.0, Helm v3.21.4. Linux, macOS or Windows (WSL2)
    **Required reviewers**. This is the manual release approval.
 2. **Settings → Actions → General → Workflow permissions**: "Read and write".
    (The workflow still limits each job to what it needs.)
-3. After the first pipeline run: **your profile → Packages → taskflow → Package settings
-   → Change visibility → Public**, so the cluster can pull the image without credentials.
+3. After the first pipeline run, check **your profile → Packages → taskflow** is
+   **Public** (it was public automatically for this public repo), so the cluster can pull
+   the image without credentials.
    (Private alternative: see the pull-secret note printed by `scripts/create-secrets.sh`.)
 
 ### 2. Create the cluster and platform (~10 minutes)
@@ -129,6 +137,10 @@ in a log line to open that request's trace.
 make verify     # writes evidence/verification-<timestamp>.md
 ```
 
+Collected evidence for this repository (release `28bb5ba`, fault demos, incidents) is
+indexed in [docs/evidence/README.md](docs/evidence/README.md). Problems found while
+bringing the platform up are written up in [docs/incidents.md](docs/incidents.md).
+
 ## Everyday workflow
 
 | Goal | Command |
@@ -155,3 +167,13 @@ make verify     # writes evidence/verification-<timestamp>.md
 - **Secrets are plain Kubernetes Secrets** created by a script (not encrypted at rest in
   etcd, not managed by a vault). See docs/decisions.md for the tradeoff.
 - `make cluster` needs internet access to pull charts and images.
+- **The arm64 image variant is built under QEMU and not separately scanned**; the amd64
+  variant is scanned and smoke-tested (see docs/decisions.md).
+- **Argo CD shows `Degraded` for ~15 s after each rollout** while the HPA has no CPU sample
+  for the new pods; it clears on its own and traffic is unaffected.
+- **`make load` stops at the first network error** (e.g. after the laptop sleeps). On macOS
+  run `caffeinate -i make load`.
+- **The cluster stops when Docker stops.** `docker start taskflow-control-plane
+  taskflow-worker taskflow-worker2` brings it back with state and data intact.
+- **Each push runs CI twice** while the PR is open (`push` and `pull_request` events); only
+  the `push` run releases.
