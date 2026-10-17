@@ -1,17 +1,48 @@
-# TaskFlow
+# TaskFlow: DevOps project report
 
-A small shared task list (add, complete, delete tasks), built with FastAPI and
-PostgreSQL, and operated on Kubernetes with a complete delivery and observability
-setup: CI with security gates, GitOps releases through Argo CD, SLO-based
-alerting, logs, metrics and traces.
+TaskFlow, a small FastAPI and PostgreSQL task list, now builds, tests, scans, releases and
+observes itself on Kubernetes. Everything below was run and checked on a live cluster.
+How to run it yourself is in [Running it](#running-it).
 
-| | |
-|---|---|
-| App | Python 3.12, FastAPI, PostgreSQL 16, plain HTML/JS front end |
-| Runtime | Kubernetes (kind, 1 control plane + 2 workers), Helm chart, Traefik ingress |
-| Delivery | GitHub Actions → GHCR → Git commit of the image tag → Argo CD |
-| Signals | Prometheus + Grafana + Alertmanager, Loki + Alloy (logs), Jaeger (traces) |
-| Security | Pinned actions, gitleaks, pip-audit, Trivy, restricted Pod Security, NetworkPolicies, secrets outside Git |
+## Submission at a glance
+
+| Item | Value |
+| --- | --- |
+| Baseline commit (before DevOps work) | [`8b2761aacc2bc0daa1d37e4909c68ec9954dbaa7`](https://github.com/hemkeshkantawala11/taskflow/commit/8b2761aacc2bc0daa1d37e4909c68ec9954dbaa7) on `main` |
+| Pull request (all improvements, unmerged) | [#1: main ← devops/platform](https://github.com/hemkeshkantawala11/taskflow/pull/1) |
+| Deployed version | Release 6: source `a0f7b71`, pipeline run [39014215134](https://github.com/hemkeshkantawala11/taskflow/actions/runs/39014215134), release commit `7cce9cb` |
+
+## What was done
+
+1. **Containerised and tested the app:** health, readiness and version endpoints, metrics,
+   JSON logs and tracing; 15 tests against real PostgreSQL; a multi-stage, non-root,
+   multi-arch Docker image.
+2. **Deployed on Kubernetes (kind) with a Helm chart:** zero-downtime rolling updates,
+   autoscaling 2–5 pods, a PostgreSQL StatefulSet with persistent storage, NetworkPolicies
+   and restricted Pod Security.
+3. **CI/CD pipeline in GitHub Actions:** lint, tests and security scans (gitleaks,
+   pip-audit, Trivy), a manual approval gate, then GitOps releases through Argo CD, with
+   rollback by `git revert`.
+4. **Observability:** Prometheus metrics with a 99% SLO and burn-rate alerts, a Grafana
+   dashboard, logs in Loki and traces in Jaeger, linked by trace ID.
+5. **Verified on a running cluster:** 6 releases with zero failed requests; alert, rollback,
+   database-crash, drift and autoscaling demos.
+
+## The application and the baseline
+
+TaskFlow is a shared to-do list: add a task, mark it done, delete it. It is a Python 3.12
+FastAPI service with a PostgreSQL 16 database and a plain HTML/JS page, exposing
+`/api/tasks` (GET, POST) and `/api/tasks/{id}` (PATCH, DELETE).
+
+At the baseline it had no DevOps setup. It ran by hand with `uvicorn` against a manually
+started PostgreSQL, configured by one `DATABASE_URL` variable with a hard-coded default.
+There was no container image, no tests, no CI/CD, no Kubernetes manifests, no health checks,
+no metrics, no structured logging, no tracing and no security scanning.
+
+The app was changed only where operation needed it: settings from environment variables, a
+connection pool, `/healthz` (liveness, never touches the database), `/readyz` (readiness,
+checks the database), `/version` (git SHA and pod name), `/metrics`, JSON logs carrying trace
+IDs, OpenTelemetry tracing, a bounded list endpoint, and 15 tests against a real PostgreSQL.
 
 ## Architecture
 
@@ -36,7 +67,69 @@ flowchart LR
   web1 & web2 -.pull image.-> ghcr
 ```
 
-Details: [docs/architecture.md](docs/architecture.md), design choices: [docs/decisions.md](docs/decisions.md).
+A push is tested, scanned and built in GitHub Actions, the image goes to GHCR, and after a
+human approval a bot commits the new tag to Git. Argo CD inside the cluster pulls that commit
+and applies it; CI never holds cluster credentials. User requests flow Browser → Traefik →
+web pods → PostgreSQL, and every pod emits metrics, logs and traces that Grafana reads in one
+place.
+
+## What was built
+
+| Area | What is in place | Why it matters |
+| --- | --- | --- |
+| Kubernetes | Helm chart: web Deployment with startup, liveness and readiness probes; rolling update with `maxSurge: 1`, `maxUnavailable: 0`, `minReadySeconds: 5`, `preStop` sleep; HPA 2–5 pods at 70% CPU; PDB `minAvailable: 1`; topology spread; PostgreSQL StatefulSet with a 1Gi PVC; Traefik Ingress | Releases never drop capacity; a failing release stops at one pod; data survives pod loss |
+| CI | GitHub Actions: ruff + pytest against PostgreSQL, gitleaks over full history, pip-audit, Trivy config scan, helm lint, kubeconform, promtool unit tests of the alert rules, Trivy image scan, container smoke test that checks `/version` returns the commit SHA | Every change is tested, scanned and validated before an image exists |
+| CD and release control | Image tag = full git SHA (multi-arch amd64 + arm64) → manual approval on GitHub Environment `local` → bot commits the tag to `values-local.yaml` → Argo CD syncs with selfHeal and prune. Rollback = `git revert` | CI holds no cluster credentials; Git records every release and rollback |
+| Observability | Prometheus RED metrics labelled by route template; 99% availability SLO with multi-window burn-rate alerts and runbook links; Grafana dashboard; JSON logs in Loki via Alloy; OpenTelemetry traces with SQL spans in Jaeger; trace ID links logs to traces | A failure is seen as a symptom, traced to a request, and alerted on against a budget |
+| Security | Non-root UID 10001, read-only root filesystem, Pod Security "restricted", default-deny NetworkPolicies with explicit allows, no service account token, passwords generated in-cluster (never in Git), actions pinned to commit SHAs, checksum-verified tools | Small blast radius and a supply chain that cannot be silently swapped |
+| Configuration | One chart, `values.yaml` defaults + `values-local.yaml` per environment; ConfigMap checksum triggers a restart; pinned platform versions in `deploy/platform/versions.env` | One source of truth, reviewable changes, no drifting copies |
+
+## Screenshots
+
+![Grafana dashboard during the error demo: availability 92.9%, error ratio rising, build a0f7b71](docs/screenshots/grafana-errors.png)
+
+*Grafana during the error demo: availability falls, the error budget burns 7.1× too fast.*
+
+![Alertmanager with TaskflowHighErrorRate active](docs/screenshots/alertmanager-firing.png)
+
+*`TaskflowHighErrorRate` firing in Alertmanager (critical).*
+
+![Grafana dashboard over 30 minutes showing the error spike and recovery](docs/screenshots/grafana-recovered.png)
+
+*The same dashboard over 30 minutes: error spike and recovery.*
+
+![Grafana Explore on Loki with JSON request logs and trace IDs](docs/screenshots/loki-logs.png)
+
+*Request logs in Loki as JSON, each with a `trace_id`.*
+
+![Argo CD application taskflow Synced and Healthy](docs/screenshots/argocd-app.png)
+
+*Argo CD: application `taskflow` Synced and Healthy.*
+
+## Key decisions
+
+| Decision | Chosen | Alternative and when it would win |
+| --- | --- | --- |
+| Delivery | Pull-based GitOps with Argo CD; CI has no cluster credentials | Self-hosted runner doing `helm upgrade`: simpler, but CI needs cluster admin |
+| Release strategy | Rolling update, `maxUnavailable: 0` | Canary with Argo Rollouts and metric analysis once users are real; blue-green for instant switch-back at 2× resources |
+| Release gate | Manual approval before release only; all checks automatic | Remove the gate for continuous deployment once coverage and canary analysis are trusted |
+| Liveness | Never checks the database | Checking it would restart every web pod during a database outage without fixing anything |
+| Resources | Memory limits, no CPU limits | CPU limits cause throttling; requests already drive scheduling and the HPA |
+| Secrets | Generated in-cluster by script, never in Git | Sealed Secrets or a vault for encrypted, auditable secrets |
+| Image architectures | amd64 scanned and smoke-tested, arm64 added under QEMU | Native arm runners per architecture plus a manifest merge |
+
+
+---
+
+# Running it
+
+| | |
+|---|---|
+| App | Python 3.12, FastAPI, PostgreSQL 16, plain HTML/JS front end |
+| Runtime | Kubernetes (kind, 1 control plane + 2 workers), Helm chart, Traefik ingress |
+| Delivery | GitHub Actions → GHCR → Git commit of the image tag → Argo CD |
+| Signals | Prometheus + Grafana + Alertmanager, Loki + Alloy (logs), Jaeger (traces) |
+| Security | Pinned actions, gitleaks, pip-audit, Trivy, restricted Pod Security, NetworkPolicies, secrets outside Git |
 
 ## Repository layout
 
@@ -51,7 +144,7 @@ deploy/platform/          Platform components (pinned versions in versions.env)
 deploy/kind/              Local cluster definition
 deploy/tests/             promtool unit tests for the SLO alerts
 scripts/                  setup, secrets, smoke test, verification, failure demos
-docs/                     architecture, decisions, runbook, fault demo, evidence
+docs/                     runbook (linked from every alert) and screenshots
 ```
 
 ## Prerequisites
@@ -137,10 +230,6 @@ in a log line to open that request's trace.
 make verify     # writes evidence/verification-<timestamp>.md
 ```
 
-Collected evidence for this repository (release `28bb5ba`, fault demos, incidents) is
-indexed in [docs/evidence/README.md](docs/evidence/README.md). Problems found while
-bringing the platform up are written up in [docs/incidents.md](docs/incidents.md).
-
 ## Everyday workflow
 
 | Goal | Command |
@@ -150,33 +239,5 @@ bringing the platform up are written up in [docs/incidents.md](docs/incidents.md
 | Roll back a bad release | `make rollback` (reverts the newest deploy commit; Argo CD applies it) |
 | Run the app without Kubernetes | `make dev` → http://localhost:8000 |
 | Run tests locally | `docker compose up -d db && make test` |
-| Failure demos | `make demo-drift`, `demo-db`, `demo-bad-release`, `demo-errors-on/off` ([guide](docs/fault-demo.md)) |
+| Failure demos | `make demo-drift`, `demo-db`, `demo-bad-release`, `demo-errors-on/off` |
 | Remove everything | `make clean` |
-
-## Known limitations
-
-- **Single PostgreSQL instance**, no replication or automated backups. A pod restart is
-  safe (data is on a PersistentVolume), but losing the kind node loses the data.
-- **Local cluster only.** The ingress is plain HTTP on localhost; there is no TLS.
-- **Release bot commits land on the working branch.** Pull before pushing. The final
-  commit of the PR may be a `deploy(local)` commit; its message names the source commit
-  whose image is running.
-- **Jaeger keeps traces in memory**; they disappear when its pod restarts.
-- **Alertmanager has no notification receiver** configured; alerts are visible in
-  Alertmanager, Prometheus and Grafana.
-- **Secrets are plain Kubernetes Secrets** created by a script (not encrypted at rest in
-  etcd, not managed by a vault). See docs/decisions.md for the tradeoff.
-- `make cluster` needs internet access to pull charts and images.
-- **The arm64 image variant is built under QEMU and not separately scanned**; the amd64
-  variant is scanned and smoke-tested (see docs/decisions.md).
-- **Argo CD shows `Degraded` for ~15 s after each rollout** while the HPA has no CPU sample
-  for the new pods; it clears on its own and traffic is unaffected.
-- **`make load` stops at the first network error** (e.g. after the laptop sleeps). On macOS
-  run `caffeinate -i make load`.
-- **The cluster stops when Docker stops.** `docker start taskflow-control-plane
-  taskflow-worker taskflow-worker2` brings it back with state and data intact.
-- **`NodeClockNotSynchronising` fires for the kind nodes** (node-exporter sees no time sync
-  inside the node containers). It is a platform alert from kube-prometheus-stack, not an app
-  problem; on real nodes NTP would clear it.
-- **Each push runs CI twice** while the PR is open (`push` and `pull_request` events); only
-  the `push` run releases.
