@@ -18,9 +18,12 @@ case "${1:-}" in
     done ;;
 
   drift)      # change the cluster by hand; Argo CD's selfHeal puts it back
-    kubectl -n taskflow set env deploy/taskflow LOG_LEVEL=DEBUG
-    echo "Manual change applied. Watch Argo CD revert it (usually < 1 min):"
-    echo "  kubectl -n taskflow get deploy taskflow -o jsonpath='{.spec.template.spec.containers[0].env}' ; echo"
+    # Edit a field Argo CD manages (LOG_LEVEL lives in the chart's ConfigMap). Argo CD
+    # diffs only fields it applied, so *adding* e.g. an env var to the Deployment is
+    # not seen as drift - see docs/decisions.md.
+    kubectl -n taskflow patch configmap taskflow --type merge -p '{"data":{"LOG_LEVEL":"DEBUG"}}'
+    echo "Manual change applied. Watch Argo CD revert it (usually within seconds):"
+    echo "  kubectl -n taskflow get configmap taskflow -o jsonpath='{.data.LOG_LEVEL}'; echo"
     echo "  kubectl -n argocd get application taskflow -w" ;;
 
   db-down)    # kill the database pod; StatefulSet recreates it, PVC keeps the data

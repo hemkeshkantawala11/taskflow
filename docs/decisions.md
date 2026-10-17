@@ -82,6 +82,12 @@ keep serving. *Blue-green* gives instant switch-back and full pre-production tes
 2× resources. *Canary* (Argo Rollouts) limits blast radius by percentage with automated
 metric analysis, the next step if the user base were real.
 
+**selfHeal covers managed fields, not additions.** Argo CD compares the fields it applied,
+so a hand edit to anything in the chart (an image, a ConfigMap value) is reverted within
+seconds, but a field it never set (an extra env var added with `kubectl set env`) is not
+reported as drift. Verified on the cluster. *Mitigation if it mattered:* no write access for
+humans in the namespace (RBAC) or an admission policy (Kyverno) that rejects manual edits.
+
 **Immutable image tag = full git SHA.** The running version is unambiguous: pod image →
 commit → pipeline run. `/version`, the `taskflow_build_info` metric, OCI labels and the
 `app.kubernetes.io/version` pod label all expose it. `latest` is never used.

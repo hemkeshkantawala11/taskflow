@@ -44,11 +44,15 @@ make demo-db
 ```bash
 make demo-drift
 ```
-- **Symptom:** someone edits the Deployment by hand (`LOG_LEVEL=DEBUG`).
-- **Evidence:** Argo CD briefly shows OutOfSync, then selfHeal re-applies Git's version and the
-  extra env var disappears.
-- **Point to make:** Git is the source of truth; manual changes don't survive, so what's running
-  always matches what was reviewed.
+- **Symptom:** someone edits the live configuration by hand (`LOG_LEVEL=DEBUG` in the
+  `taskflow` ConfigMap).
+- **Evidence:** Argo CD sees the managed ConfigMap differ from Git and selfHeal re-applies
+  Git's version within seconds (`LOG_LEVEL` is back to `INFO`).
+- **Point to make:** Git is the source of truth; manual changes to managed fields don't
+  survive, so what's running matches what was reviewed.
+- **Limit worth knowing:** Argo CD only diffs fields it applied. *Adding* something it never
+  set (e.g. `kubectl set env deploy/taskflow EXTRA=1`) is not detected as drift. Closing that
+  gap needs an admission policy that blocks manual changes, or RBAC that removes write access.
 
 ## Questions to rehearse ("what would change?")
 
