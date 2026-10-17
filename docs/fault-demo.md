@@ -53,14 +53,3 @@ make demo-drift
 - **Limit worth knowing:** Argo CD only diffs fields it applied. *Adding* something it never
   set (e.g. `kubectl set env deploy/taskflow EXTRA=1`) is not detected as drift. Closing that
   gap needs an admission policy that blocks manual changes, or RBAC that removes write access.
-
-## Questions to rehearse ("what would change?")
-
-- *Node fails:* topology spread put web pods on both workers, so one survives and the PDB protects
-  drains. Postgres is single-instance, so it's unavailable until rescheduled (and with kind
-  local-path storage, its data is tied to that node).
-- *10× traffic:* the HPA scales to 5 pods. Next bottlenecks are DB connections (5 pods × pool 5 = 25)
-  and CPU on the DB, so add a pooler (PgBouncer) or read replicas.
-- *Real users:* canary releases with Argo Rollouts plus automated analysis on the error-ratio
-  query, TLS via cert-manager, a managed database with backups, and an Alertmanager receiver
-  (Slack or PagerDuty).
