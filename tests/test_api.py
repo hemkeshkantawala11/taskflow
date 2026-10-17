@@ -26,6 +26,13 @@ def test_open_tasks_are_listed_before_done_ones(client):
     assert ids == [a["id"], b["id"]]
 
 
+def test_list_is_bounded(client):
+    ids = [client.post("/api/tasks", json={"title": f"t{i}"}).json()["id"] for i in range(3)]
+    assert [t["id"] for t in client.get("/api/tasks?limit=2").json()] == ids[:0:-1]
+    assert client.get("/api/tasks?limit=0").status_code == 422
+    assert client.get("/api/tasks?limit=501").status_code == 422
+
+
 def test_rejects_empty_and_overlong_titles(client):
     assert client.post("/api/tasks", json={"title": ""}).status_code == 422
     assert client.post("/api/tasks", json={"title": "x" * 201}).status_code == 422

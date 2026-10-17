@@ -14,7 +14,7 @@ import random
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
@@ -112,10 +112,12 @@ def index():
 
 
 @app.get("/api/tasks")
-def list_tasks():
+def list_tasks(limit: int = Query(100, ge=1, le=500)):
+    # Bounded: an unbounded list grew to 2.3 MB per response under load testing.
     with db.pool.connection() as conn:
         return conn.execute(
-            "SELECT id, title, done, created_at FROM tasks ORDER BY done, id DESC"
+            "SELECT id, title, done, created_at FROM tasks ORDER BY done, id DESC LIMIT %s",
+            (limit,),
         ).fetchall()
 
 
