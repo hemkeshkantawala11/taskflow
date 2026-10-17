@@ -1,0 +1,50 @@
+# Prometheus + Alertmanager + Grafana + kube-state-metrics, sized for a laptop.
+prometheus:
+  prometheusSpec:
+    # Pick up ServiceMonitors/PrometheusRules from any namespace (our app chart ships its own).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 2d
+    resources:
+      requests: { cpu: 100m, memory: 400Mi }
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+
+grafana:
+  admin:
+    existingSecret: grafana-admin   # created by scripts/create-secrets.sh, never in Git
+    userKey: admin-user
+    passwordKey: admin-password
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      url: http://loki.observability.svc.cluster.local:3100
+      jsonData:
+        # Turns trace_id in a log line into a clickable link to the trace in Jaeger.
+        derivedFields:
+          - name: TraceID
+            matcherRegex: '"trace_id":\s*"(\w+)"'
+            datasourceUid: jaeger
+            url: '$${__value.raw}'
+    - name: Jaeger
+      type: jaeger
+      uid: jaeger
+      url: http://jaeger.observability.svc.cluster.local:16686
+
+# Control-plane components in kind listen on localhost only; scraping them just
+# produces permanent "target down" noise.
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }

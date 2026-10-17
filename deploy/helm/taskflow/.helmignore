@@ -1,0 +1,3 @@
+# Files not packaged into the chart
+*.md
+.git/

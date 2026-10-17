@@ -1,0 +1,12 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# Keeps at least one app pod running during voluntary disruptions (node drain, upgrades).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "taskflow.fullname" . }}
+  labels: {{- include "taskflow.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: {{- include "taskflow.appSelector" . | nindent 6 }}
+{{- end }}

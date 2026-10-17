@@ -1,0 +1,98 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- $sel := printf "namespace=\"%s\", route=~\"/api/.*\"" $ns }}
+{{- $budget := sub 1.0 (float64 .Values.monitoring.slo.availabilityTarget) }}
+{{- $runbook := .Values.monitoring.runbookBaseUrl }}
+# SLO: {{ mulf .Values.monitoring.slo.availabilityTarget 100 }}% of /api requests return a non-5xx response.
+# Error budget = {{ mulf $budget 100 }}% of requests.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "taskflow.fullname" . }}-slo
+  labels: {{- include "taskflow.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: taskflow-slo.recording
+      interval: 30s
+      rules:
+        {{- range $w := list "5m" "30m" "1h" "6h" }}
+        - record: taskflow:api_error_ratio:rate{{ $w }}
+          expr: |
+            (sum(rate(http_requests_total{ {{- $sel }}, status=~"5.."}[{{ $w }}])) or vector(0))
+            /
+            clamp_min(sum(rate(http_requests_total{ {{- $sel }} }[{{ $w }}])), 1e-9)
+        {{- end }}
+        - record: taskflow:api_request_rate:rate5m
+          expr: sum(rate(http_requests_total{ {{- $sel }} }[5m]))
+        - record: taskflow:api_latency_p95:rate5m
+          expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{ {{- $sel }} }[5m])))
+
+    - name: taskflow-slo.alerts
+      rules:
+        # Multi-window burn-rate alert (Google SRE workbook): at 14.4x burn the
+        # whole 30-day budget is gone in ~2 days. Needs both windows to agree, so
+        # it is fast to fire and fast to clear, and ignores short blips.
+        - alert: TaskflowErrorBudgetFastBurn
+          expr: |
+            taskflow:api_error_ratio:rate1h > (14.4 * {{ $budget }})
+            and
+            taskflow:api_error_ratio:rate5m > (14.4 * {{ $budget }})
+          for: 2m
+          labels: { severity: critical, service: taskflow }
+          annotations:
+            summary: TaskFlow is burning its error budget 14x faster than allowed
+            description: {{`'{{ $value | humanizePercentage }} of /api requests failing over the last hour.'`}}
+            runbook_url: {{ $runbook }}#taskflowerrorbudgetfastburn
+        - alert: TaskflowErrorBudgetSlowBurn
+          expr: |
+            taskflow:api_error_ratio:rate6h > (6 * {{ $budget }})
+            and
+            taskflow:api_error_ratio:rate30m > (6 * {{ $budget }})
+          for: 15m
+          labels: { severity: warning, service: taskflow }
+          annotations:
+            summary: TaskFlow error budget is draining steadily
+            runbook_url: {{ $runbook }}#taskflowerrorbudgetslowburn
+        # Symptom alert with a short window: quick feedback during demos and rollouts.
+        - alert: TaskflowHighErrorRate
+          expr: taskflow:api_error_ratio:rate5m > 0.05 and taskflow:api_request_rate:rate5m > 0
+          for: 2m
+          labels: { severity: critical, service: taskflow }
+          annotations:
+            summary: More than 5% of TaskFlow API requests are failing
+            description: {{`'Current 5m error ratio: {{ $value | humanizePercentage }}.'`}}
+            runbook_url: {{ $runbook }}#taskflowhigherrorrate
+        - alert: TaskflowHighLatency
+          expr: taskflow:api_latency_p95:rate5m > {{ .Values.monitoring.slo.latencyP95Seconds }}
+          for: 5m
+          labels: { severity: warning, service: taskflow }
+          annotations:
+            summary: TaskFlow p95 latency above {{ .Values.monitoring.slo.latencyP95Seconds }}s
+            runbook_url: {{ $runbook }}#taskflowhighlatency
+        - alert: TaskflowDatabaseUnreachable
+          expr: max(taskflow_db_up{namespace="{{ $ns }}"}) == 0
+          for: 1m
+          labels: { severity: critical, service: taskflow }
+          annotations:
+            summary: No TaskFlow pod can reach PostgreSQL
+            runbook_url: {{ $runbook }}#taskflowdatabaseunreachable
+        - alert: TaskflowNoReadyPods
+          expr: kube_deployment_status_replicas_available{namespace="{{ $ns }}", deployment="{{ include "taskflow.fullname" . }}"} == 0
+          for: 1m
+          labels: { severity: critical, service: taskflow }
+          annotations:
+            summary: TaskFlow has no available pods - users get errors
+            runbook_url: {{ $runbook }}#taskflownoreadypods
+        - alert: TaskflowRolloutStuck
+          expr: |
+            kube_deployment_status_observed_generation{namespace="{{ $ns }}", deployment="{{ include "taskflow.fullname" . }}"}
+              != kube_deployment_metadata_generation{namespace="{{ $ns }}", deployment="{{ include "taskflow.fullname" . }}"}
+            or
+            kube_deployment_status_replicas_updated{namespace="{{ $ns }}", deployment="{{ include "taskflow.fullname" . }}"}
+              < kube_deployment_spec_replicas{namespace="{{ $ns }}", deployment="{{ include "taskflow.fullname" . }}"}
+          for: 5m
+          labels: { severity: warning, service: taskflow }
+          annotations:
+            summary: A TaskFlow release has not finished rolling out after 5 minutes
+            runbook_url: {{ $runbook }}#taskflowrolloutstuck
+{{- end }}

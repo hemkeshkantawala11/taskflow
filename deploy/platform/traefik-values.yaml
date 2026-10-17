@@ -1,0 +1,26 @@
+# Ingress controller. Exposed as NodePort 30080, which kind maps to localhost:8080.
+# (ingress-nginx was retired in 2026, so Traefik is used for the standard Ingress API.)
+service:
+  spec:
+    type: NodePort
+ports:
+  web:
+    nodePort: 30080
+  websecure:
+    expose:
+      default: false
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+providers:
+  kubernetesCRD:
+    enabled: false   # we only use the portable networking.k8s.io/v1 Ingress
+  kubernetesIngress:
+    enabled: true
+    # A NodePort Service has no load-balancer address to copy into Ingress status,
+    # and Argo CD reports an Ingress without one as "Progressing" forever.
+    # Publish the address users actually reach (kind maps it to localhost) instead.
+    publishedService:
+      enabled: false
+    ingressEndpoint:
+      ip: 127.0.0.1

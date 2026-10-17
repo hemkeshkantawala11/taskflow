@@ -1,0 +1,89 @@
+{{- if .Values.database.enabled }}
+# PostgreSQL as a StatefulSet: a stable network identity (taskflow-postgres-0) and
+# a PersistentVolumeClaim that survives pod restarts and rescheduling.
+# One replica: no replication/failover - an accepted limitation for this project.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taskflow.dbname" . }}
+  labels:
+    {{- include "taskflow.labels" . | nindent 4 }}
+    {{- include "taskflow.dbSelector" . | nindent 4 }}
+spec:
+  clusterIP: None   # headless: DNS resolves straight to the pod
+  selector: {{- include "taskflow.dbSelector" . | nindent 4 }}
+  ports:
+    - { name: postgres, port: 5432, targetPort: postgres }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "taskflow.dbname" . }}
+  labels:
+    {{- include "taskflow.labels" . | nindent 4 }}
+    {{- include "taskflow.dbSelector" . | nindent 4 }}
+spec:
+  serviceName: {{ include "taskflow.dbname" . }}
+  replicas: 1
+  selector:
+    matchLabels: {{- include "taskflow.dbSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "taskflow.labels" . | nindent 8 }}
+        {{- include "taskflow.dbSelector" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70        # the "postgres" user in the alpine image
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 60   # let Postgres shut down cleanly
+      containers:
+        - name: postgres
+          image: {{ .Values.database.image }}
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          env:
+            - { name: POSTGRES_DB, value: {{ .Values.database.name | quote }} }
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: username } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: password } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources: {{- toYaml .Values.database.resources | nindent 12 }}
+          securityContext: {{- include "taskflow.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: run, mountPath: /var/run/postgresql }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.database.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.database.storage }}
+{{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: taskflow
+description: TaskFlow web app with its PostgreSQL database, probes, autoscaling, network policies and monitoring.
+type: application
+version: 1.0.0        # chart version: bump when templates change
+appVersion: "1.0.0"   # default app version; the deployed image tag is the git SHA

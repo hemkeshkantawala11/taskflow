@@ -1,0 +1,9 @@
+# Argo CD: pulls the desired state from Git and keeps the cluster matching it.
+configs:
+  params:
+    server.insecure: true          # local only, reached via kubectl port-forward
+  cm:
+    timeout.reconciliation: 60s    # poll Git every minute (default is 3 min)
+dex: { enabled: false }
+notifications: { enabled: false }
+applicationSet: { enabled: false }

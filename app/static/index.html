@@ -50,6 +50,11 @@
   li.done .title { color: var(--done); text-decoration: line-through; }
   .empty, .error { padding: 24px 20px; color: var(--muted); margin: 0; }
   .error { color: var(--margin); }
+  .build {
+    margin-top: 20px; padding: 10px 14px; border: 1px dashed var(--rule); border-radius: 6px;
+    color: var(--muted); font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 4px 18px;
+  }
+  .build strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
@@ -66,6 +71,11 @@
     <ul id="list" aria-live="polite"></ul>
     <p id="status" class="empty" hidden></p>
   </section>
+  <footer class="build" id="build" aria-label="Running build">
+    <span>Build <strong id="b-sha">unknown</strong></span>
+    <span>Version <strong id="b-version">unknown</strong></span>
+    <span>Served by <strong id="b-pod">unknown</strong></span>
+  </footer>
 </main>
 <script>
   const list = document.getElementById("list");
@@ -105,7 +115,18 @@
     }
   }
 
+  // Shows which build and which pod answered: makes rollouts and load balancing visible.
+  async function loadBuild() {
+    try {
+      const v = await api("/version");
+      document.getElementById("b-sha").textContent = v.git_sha.slice(0, 7);
+      document.getElementById("b-version").textContent = v.version;
+      document.getElementById("b-pod").textContent = v.pod;
+    } catch (e) { /* build info is informational only */ }
+  }
+
   async function load() {
+    loadBuild();
     try { render(await api("/api/tasks")); }
     catch (e) { showStatus("Couldn't load tasks. Check that the server is running, then reload.", true); }
   }
