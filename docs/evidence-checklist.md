@@ -19,5 +19,3 @@ and link this file from the PR.
 | 12 | A rollback | Demo 1: revert commit + Argo CD history |
 | 13 | Security gates | Security job log (gitleaks, pip-audit, Trivy) |
 | 14 | Recorded walkthrough (optional, recommended) | 5–8 min screen recording following this table |
-
-State limitations honestly (README, "Known limitations").
