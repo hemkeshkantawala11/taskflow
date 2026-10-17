@@ -175,5 +175,8 @@ bringing the platform up are written up in [docs/incidents.md](docs/incidents.md
   run `caffeinate -i make load`.
 - **The cluster stops when Docker stops.** `docker start taskflow-control-plane
   taskflow-worker taskflow-worker2` brings it back with state and data intact.
+- **`NodeClockNotSynchronising` fires for the kind nodes** (node-exporter sees no time sync
+  inside the node containers). It is a platform alert from kube-prometheus-stack, not an app
+  problem; on real nodes NTP would clear it.
 - **Each push runs CI twice** while the PR is open (`push` and `pull_request` events); only
   the `push` run releases.

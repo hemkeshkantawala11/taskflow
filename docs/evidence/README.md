@@ -18,7 +18,7 @@ Problems found along the way are written up in [../incidents.md](../incidents.md
 | 7 | Users served by that version | [01-verify-release-a0f7b71.md](01-verify-release-a0f7b71.md) §4 |
 | 8 | User journey works | [01-verify-release-a0f7b71.md](01-verify-release-a0f7b71.md) §5 (smoke test) |
 | 9 | Dashboard with traffic | screenshots `grafana-errors.png`, `grafana-recovered.png` |
-| 10 | Log line → trace with SQL span | [03-log-to-trace.md](03-log-to-trace.md), screenshot `log-to-trace.png` |
+| 10 | Log line → trace with SQL span | [03-log-to-trace.md](03-log-to-trace.md); screenshot `loki-logs.png` (JSON logs with `trace_id`, error lines during the demo) |
 | 11 | Alert firing and resolving | [08-errors-alert.md](08-errors-alert.md), screenshot `alertmanager-firing.png` |
 | 12 | Rollback | [09-bad-release-rollback.md](09-bad-release-rollback.md) |
 | 13 | Security gates | Security job of the run above (gitleaks, pip-audit, Trivy config) and Trivy image scan in the build job |
@@ -35,4 +35,12 @@ Problems found along the way are written up in [../incidents.md](../incidents.md
 | [08-errors-alert.md](08-errors-alert.md) | Fault injected via Git → SLO alert fires → reverted → resolves |
 | [09-bad-release-rollback.md](09-bad-release-rollback.md) | Broken image tag → old pods keep serving → `git revert` |
 
-Screenshots are in [screenshots/](screenshots/) (browser chrome cropped).
+## Screenshots ([screenshots/](screenshots/), browser chrome cropped)
+
+| File | Shows |
+|---|---|
+| `grafana-errors.png` | Dashboard during the errors demo: availability 92.9%, burn rate 7.1, error ratio rising, build `a0f7b71` |
+| `alertmanager-firing.png` | `TaskflowHighErrorRate` (critical) active in Alertmanager since 07:46:28 |
+| `grafana-recovered.png` | The same dashboard over 30 minutes: error spike and recovery |
+| `loki-logs.png` | Grafana Explore on Loki: JSON request logs with `trace_id`; error-level lines during the demo |
+| `argocd-app.png` | Argo CD application `taskflow` Synced / Healthy |
