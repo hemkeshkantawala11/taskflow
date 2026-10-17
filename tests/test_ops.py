@@ -44,3 +44,7 @@ def test_chaos_injection_returns_500(client, monkeypatch):
     monkeypatch.setattr(main, "settings", main.settings.__class__(chaos_error_rate=1.0))
     assert client.get("/api/tasks").status_code == 500
     assert client.get("/healthz").status_code == 200  # never affects probes
+    # Counted under the real route, so the /api SLO rules see injected failures.
+    text = client.get("/metrics").text
+    assert 'http_requests_total{method="GET",route="/api/tasks",status="500"}' in text
+    assert 'route="unmatched"' not in text

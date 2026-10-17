@@ -14,7 +14,7 @@ import random
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
@@ -49,19 +49,20 @@ app = FastAPI(title="TaskFlow", version=settings.app_version, lifespan=lifespan)
 setup_tracing(app)
 
 
-@app.middleware("http")
-async def chaos(request: Request, call_next):
-    """Deliberate fault injection for the alerting/recovery demo (off by default)."""
-    if (
-        settings.chaos_error_rate > 0
-        and request.url.path.startswith("/api/")
-        and random.random() < settings.chaos_error_rate
-    ):
-        return JSONResponse({"detail": "Injected failure (CHAOS_ERROR_RATE)"}, status_code=500)
-    return await call_next(request)
+def inject_chaos():
+    """Deliberate fault injection for the alerting/recovery demo (off by default).
+
+    A route dependency, not middleware: it runs after routing, so injected failures are
+    counted under the real route template and the /api SLO sees them.
+    """
+    if settings.chaos_error_rate > 0 and random.random() < settings.chaos_error_rate:
+        raise HTTPException(status_code=500, detail="Injected failure (CHAOS_ERROR_RATE)")
 
 
-# Added last so it is the outermost middleware and also measures injected failures.
+API_DEPS = [Depends(inject_chaos)]
+
+
+# Outermost middleware, so it also measures failures raised by routes and dependencies.
 app.add_middleware(MetricsMiddleware)
 
 
@@ -111,7 +112,7 @@ def index():
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/api/tasks")
+@app.get("/api/tasks", dependencies=API_DEPS)
 def list_tasks(limit: int = Query(100, ge=1, le=500)):
     # Bounded: an unbounded list grew to 2.3 MB per response under load testing.
     with db.pool.connection() as conn:
@@ -121,7 +122,7 @@ def list_tasks(limit: int = Query(100, ge=1, le=500)):
         ).fetchall()
 
 
-@app.post("/api/tasks", status_code=201)
+@app.post("/api/tasks", status_code=201, dependencies=API_DEPS)
 def create_task(task: TaskIn):
     with db.pool.connection() as conn:
         row = conn.execute(
@@ -132,7 +133,7 @@ def create_task(task: TaskIn):
     return row
 
 
-@app.patch("/api/tasks/{task_id}")
+@app.patch("/api/tasks/{task_id}", dependencies=API_DEPS)
 def update_task(task_id: int, patch: TaskPatch):
     with db.pool.connection() as conn:
         row = conn.execute(
@@ -144,7 +145,7 @@ def update_task(task_id: int, patch: TaskPatch):
     return row
 
 
-@app.delete("/api/tasks/{task_id}", status_code=204)
+@app.delete("/api/tasks/{task_id}", status_code=204, dependencies=API_DEPS)
 def delete_task(task_id: int):
     with db.pool.connection() as conn:
         cur = conn.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
